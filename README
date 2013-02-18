@@ -1,0 +1,63 @@
+NAME
+    log-defer-viz - command-line utility for rendering log messages created
+    by Log::Defer
+
+INPUT METHODS
+        $ cat file.log | log-defer-viz
+        $ log-defer-viz < file.log
+        $ log-defer-viz file.log
+        $ log-defer-viz file.log file2.log
+        $ log-defer-viz archived.log.gz more_logs.bz2
+
+INPUT FORMAT
+        $ log-defer-viz file --input-format=json  ## default is newline separated JSON
+        $ log-defer-viz file --input-format=sereal  ## Sereal::Decoder (not impl)
+        $ log-defer-viz file --input-format=messagepack  ## Data::MessagePack (not impl)
+        $ log-defer-viz file --input-format=storable  ## Storable (not impl)
+
+    Note: The only input format currently implemented is newline-separated
+    JSON.
+
+LOG MESSAGES
+        $ log-defer-viz file  ## by default shows error, warn, and info logs
+        $ log-defer-viz file -v  ## verbose mode (adds debug logs and more)
+        $ log-defer-viz file --debug  ## show debug logs
+        $ log-defer-viz file --quiet  ## only errors and warnings
+        $ log-defer-viz file --verbosity 25  ## numeric verbosity threshold
+        $ log-defer-viz file --nowarn  ## muffle warn logs (so show error and info)
+        $ log-defer-viz file --nologs  ## don't show log section
+        $ log-defer-viz file --nocolour  ## turn off terminal colours
+
+TIMERS
+        $ log-defer-viz file --timer-columns 80  ## width of timer chart
+        $ log-defer-viz file --since-now  ## show relative to now times
+                                          ##   like "34 minutes ago"
+        $ log-defer-viz file --notimers  ## don't show timer chart
+
+DATA SECTION
+    Data is extra embedded information in the log file. The available
+    outputs are "pretty-json", "json", "yaml", and "dumper".
+
+        $ log-defer-viz file --data  ## show data section. default is pretty-json
+        $ log-defer-viz file --data-format=json  ## compact, not pretty
+        $ log-defer-viz file --data-format=dumper  ## Data::Dumper
+        $ log-defer-viz file --data-only  ## only show data
+
+MISC
+        $ log-defer-viz file --help  ## the text you're reading now
+        $ log-defer-viz file --grep '$_->{data}'  ## grep for records that have a data section.
+                                                  ## $_ is the entire Log::Defer entry.
+
+SEE ALSO
+    <Log::Defer::Viz github repo>
+
+    <Log::Defer github repo>
+
+AUTHOR
+    Doug Hoyte, "<doug@hcsw.org>"
+
+COPYRIGHT & LICENSE
+    Copyright 2013 Doug Hoyte.
+
+    This module is licensed under the same terms as perl itself.
+
