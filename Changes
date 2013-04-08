@@ -1,3 +1,12 @@
+0.300   2013-04-08
+  * Data::Dumper data view mode was broken
+  * Allow forcing colours on, even if STDOUT is not a
+    terminal with --colour
+  * On terminals that don't support bright_* colours, fall
+    back to non-bright colours instead of erroring out
+  * Support new style timer messages that are in arrays,
+    not hashes
+
 0.201   2013-02-20
   * Only include terminal colours if stdout is a terminal
   * Forgot to install script in path
