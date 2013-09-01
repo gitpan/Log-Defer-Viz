@@ -6,6 +6,7 @@ use JSON::XS;
 use Getopt::Long;
 use Term::ANSIColor;
 use Term::Size;
+use Try::Tiny;
 
 use Log::Defer::Viz;
 
@@ -21,7 +22,7 @@ my $colour_spec = {
 
 my @opt_spec = (
   ## INPUT FORMAT
- 
+
   'input-format=s',
 
   ## DATE
@@ -54,11 +55,13 @@ my @opt_spec = (
   'data!',
   'data-format=s',
   'data-only',
+  'count=s@',
 
   ## MISC
 
   'help|h|?',
-  'grep|g=s',
+  'grep|filter|g=s',
+  'map|m=s',
 );
 
 my $opt = {
@@ -114,16 +117,31 @@ if ($opt->{'data-only'}) {
 }
 
 
+my $count = {};
+
+foreach my $key (@{ $opt->{count} }) {
+  $count->{$key} = {};
+}
+
+
 my $columns = $opt->{'timer-columns'};
 
 my ($term_cols, $term_rows) = Term::Size::chars(*STDOUT{IO});
 $columns = $term_cols if $term_cols;
 
 
+## The _ sub is a shortcut for --grep and --map expressions, ie --grep '_->{data}'
+sub _ () { $_ }
+
 if ($opt->{grep}) {
   $opt->{grep} = eval('sub { local $_ = $_[0]; ' . $opt->{grep} . '}');
+  die "Error compiling --grep expression: $@" if $@;
 }
 
+if ($opt->{map}) {
+  $opt->{map} = eval('sub { local $_ = $_[0]; ' . $opt->{map} . '}');
+  die "Error compiling --map expression: $@" if $@;
+}
 
 
 unshift(@ARGV, '-') unless @ARGV;
@@ -143,19 +161,63 @@ while (my $file = shift) {
   }
 
   while(<$fh>) {
-    my $entry = decode_json($_);
-    handle_entry($entry);
+    my $entry;
+
+    try {
+      $entry = decode_json($_);
+    } catch {
+      if ($opt->{verbose}) {
+        print STDERR "Error parsing log line: $_";
+      }
+    };
+
+    handle_entry($entry) if defined $entry;
   }
 
   close($fh);
 }
 
+if (scalar @{$opt->{count}}) {
+  print "  Count:\n";
+  print output_data($count);
+}
 
 
 sub handle_entry {
   my ($entry) = @_;
 
-  return if $opt->{grep} && !$opt->{grep}->($entry);
+  if ($opt->{grep}) {
+    my $result;
+
+    eval {
+      $result = $opt->{grep}->($entry);
+    };
+
+    if ($@) {
+      print STDERR "Run-time error in --grep expression, skipping record: $@";
+      return;
+    }
+
+    return unless $result;
+  }
+
+  if ($opt->{map}) {
+    my $output;
+
+    eval {
+      $output = $opt->{map}->($entry);
+    };
+
+    if ($@) {
+      print STDERR "Run-time error in --map expression, skipping record: $@";
+      return;
+    }
+
+    $output = "$output\n" unless $output =~ /\n$/;;
+    print $output;
+
+    return;
+  }
 
   my $millis = '';
 
@@ -220,7 +282,7 @@ sub handle_entry {
 
     print "  |_" . format_time_offset($entry->{end}) . " [END]\n\n";
   }
-  
+
   if ($opt->{timers}) {
     print Log::Defer::Viz::render_timers(width => $columns-10, timers => $entry->{timers}) if $entry->{timers};
   }
@@ -232,6 +294,12 @@ sub handle_entry {
     } else {
       print "  ** This log has associated data. See it with --data\n"
         unless $opt->{quiet} || (defined $opt->{data} && !$opt->{data});
+    }
+
+    foreach my $key (@{ $opt->{count} }) {
+      if (exists $entry->{data}->{$key}) {
+        $count->{$key}->{$entry->{data}->{$key}} += 1;
+      }
     }
   }
 
@@ -382,11 +450,19 @@ Data is extra embedded information in the log file. The available outputs are C<
     $ log-defer-viz --data-format=dumper  ## Data::Dumper
     $ log-defer-viz --data-only  ## only show data
 
+=head1 COUNT
+
+The count parameter provides a method to count the number of times a specific key/value appears in the data section of the log file.
+
+    $ log-defer-viz --data --count ip_address ## Display how many log lines for each ip address
+    $ log-defer-viz --data --count ip_address --count user_id ## Display how many log lines for each ip address and each user_id
+
 =head1 MISC
 
     $ log-defer-viz --help  ## the text you're reading now
     $ log-defer-viz --grep '$_->{data}'  ## grep for records that have a data section.
                                          ## $_ is the entire Log::Defer entry.
+    $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
 
 
 =head1 GREPING
@@ -401,11 +477,33 @@ For example, here is how to grep for all requests that took longer than 500 mill
 
 Depending on your underlying storage format, it may be meaningful to grep B<before> passing to C<log-defer-viz>. Currently the only supported storage format is newline-separated JSON which I<is> designed to be pre-grepable. If your search string appears anywhere in the object, the entire log message will be displayed:
 
-    $ grep 10.9.1.2 app.log | log-defer-view
+    $ grep 10.9.1.2 app.log | log-defer-viz
 
 The final and most error-prone way to grep Log::Defer logs is to grep the unstructured output of C<log-defer-viz>:
 
-    $ log-defer-view app.log | grep 10.9.1.2
+    $ log-defer-viz app.log | grep 10.9.1.2
+
+
+
+=head1 MAPPING
+
+Similar to C<--grep>, there is also a C<--map> command-line option. If this option is passed in, the only thing that is output is whatever your C<--map> expression returns.
+
+For example, if you are putting the PID into the data section with C<< $log->data->{pid} = $$ >>, then you can extract the PID like so:
+
+    $ log-defer-viz --map '$_->{data}->{pid}' app.log
+    9765
+    9768
+    9771
+
+As with C<--grep>, you have access to any perl functions you need including L<JSON::XS>. Also, you can combine C<--map> and C<--grep>. For example, here is how to do a "pass-through" grep where the output is another valid JSON-encoded L<Log::Defer> file:
+
+    $ log-defer-viz -g '_->{data}->{username} eq "jimmy"' \
+                    -m 'encode_json _'                    \
+                    app.log                               \
+                    > jimmys-requests.log
+
+Note that the above also takes advantage of the C<-g> and C<-m> option shortcuts for C<--map> and C<--grep> respectively. It also uses the special C<_> shortcut which is an abbreviation for C<$_>.
 
 
 
