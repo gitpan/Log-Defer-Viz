@@ -30,4 +30,4 @@ requires:
 resources:
   bugtracker: https://github.com/hoytech/Log-Defer-Viz/issues
   repository: git://github.com/hoytech/Log-Defer-Viz.git
-version: 0.310
+version: 0.311
