@@ -1,5 +1,4 @@
 #!/usr/bin/env perl
-
 use common::sense;
 
 use JSON::XS;
@@ -29,6 +28,7 @@ my @opt_spec = (
 
   'date!',
   'since-now',
+  'tz=s',
 
   ## FILTERING
 
@@ -62,6 +62,7 @@ my @opt_spec = (
   'help|h|?',
   'grep|filter|g=s',
   'map|m=s',
+  'preserve-newlines|pn'
 );
 
 my $opt = {
@@ -80,6 +81,8 @@ my $opt = {
 
     'data-format' => 'json-pretty',
     'data-only' => 0,
+
+    'preserve-newlines' => 0,
 };
 
 GetOptions($opt, @opt_spec) || die "GetOptions failed";
@@ -130,7 +133,7 @@ my ($term_cols, $term_rows) = Term::Size::chars(*STDOUT{IO});
 $columns = $term_cols if $term_cols;
 
 
-## The _ sub is a shortcut for --grep and --map expressions, ie --grep '_->{data}'
+## The _ sub is a shortcut for use in --grep and --map expressions, ie --grep '_->{data}'
 sub _ () { $_ }
 
 if ($opt->{grep}) {
@@ -148,11 +151,14 @@ unshift(@ARGV, '-') unless @ARGV;
 while (my $file = shift) {
   my $fh;
 
-  ## FIXME: do this with a perl module in case zcat/bzcat aren't available
+  ## FIXME: Do these with perl modules in case zcat/bzcat aren't available.
+  ##        This would also fix stupid single quote limitation below.
 
   if ($file =~ /[.]gz$/) {
+    die qq{filename "$file" can't contain single quotes } if $file =~ /'/;
     open($fh, "zcat '$file' |") || die "couldn't open $file with zcat: $!";
   } elsif ($file =~ /[.]bz2$/) {
+    die qq{filename "$file" can't contain single quotes } if $file =~ /'/;
     open($fh, "bzcat '$file' |") || die "couldn't open $file with bzcat: $!";
   } elsif ($file eq '-') {
     $fh = \*STDIN;
@@ -247,7 +253,7 @@ sub handle_entry {
     } else {
       require Date::Format;
 
-      $formatted = Date::Format::time2str("%Y-%m-%d %a %H:%M:%S$millis %Z", $entry->{start});
+      $formatted = Date::Format::time2str("%Y-%m-%d %a %H:%M:%S$millis %Z", $entry->{start}, $opt->{tz});
     }
 
     my $date_header = "------ $formatted ($entry->{start}) ------";
@@ -265,16 +271,33 @@ sub handle_entry {
 
       my $log_string = ' [' . sprintf("%5s", num_to_level($log->[1])) . ']';
 
-      if (!ref $log_message[0] && $log_message[0] !~ /\n/) {
+      if (@log_message > 1 && !ref $log_message[0] && $log_message[0] !~ /\n/) {
           $log_string .= " $log_message[0]";
           shift @log_message;
       }
 
-      $log_string .= ' ' . encode_json(\@log_message) if @log_message;
+      if (@log_message == 1 && !ref $log_message[0] && !$opt->{'preserve-newlines'}) {
+        $log_string .= ' ' . $log_message[0];
+      }
+      else {
+        $log_string .= ' ' . encode_json(\@log_message) if @log_message;
+      }
 
       if ($opt->{colour}) {
           my $colour = num_to_colour($log->[1]);
+          unless ($opt->{'preserve-newlines'}) {
+            my $white_bar = colored('|', 'white').color($colour);
+            $log_string =~ s/\n(?=.)/\n  $white_bar                  /gs;
+            chomp $log_string;
+          }
           $log_string = colored($log_string, $colour) if defined $colour;
+      }
+      else {
+          # whitespace insertion to indent&align with '   | 0.003226 [ WARN] '
+          unless ($opt->{'preserve-newlines'}) {
+            $log_string =~ s/\n(?=.)/\n  |                  /g;
+            chomp $log_string;
+          }
       }
 
       print '  | ' . format_time_offset($log->[0]) . $log_string . "\n";
@@ -433,6 +456,7 @@ Note: The only input format currently implemented is newline-separated JSON.
     $ log-defer-viz --nowarn  ## muffle warn logs (so show error and info)
     $ log-defer-viz --nologs  ## don't show log section
     $ log-defer-viz --nocolour  ## turn off terminal colours
+    $ log-defer-viz --preserve-newlines # dont indent log messages to align with log-defer-viz output
 
 =head1 TIMERS
 
@@ -440,6 +464,7 @@ Note: The only input format currently implemented is newline-separated JSON.
     $ log-defer-viz --since-now  ## show relative to now times
                                  ##   like "34 minutes ago"
     $ log-defer-viz --notimers  ## don't show timer chart
+    $ log-defer-viz --tz UTC  ## show times in UTC, not local
 
 =head1 DATA SECTION
 
@@ -491,19 +516,33 @@ Similar to C<--grep>, there is also a C<--map> command-line option. If this opti
 
 For example, if you are putting the PID into the data section with C<< $log->data->{pid} = $$ >>, then you can extract the PID like so:
 
-    $ log-defer-viz --map '$_->{data}->{pid}' app.log
+    $ log-defer-viz --map '$_->{data}->{pid}' < app.log
     9765
     9768
     9771
 
-As with C<--grep>, you have access to any perl functions you need including L<JSON::XS>. Also, you can combine C<--map> and C<--grep>. For example, here is how to do a "pass-through" grep where the output is another valid JSON-encoded L<Log::Defer> file:
+Join together fields with a pipe (also shows the special C<_> shortcut which is an abbreviation for C<$_>):
 
-    $ log-defer-viz -g '_->{data}->{username} eq "jimmy"' \
-                    -m 'encode_json _'                    \
-                    app.log                               \
+    $ log-defer-viz --map 'join "|", _->{data}{pid}, _->{start}' < app.log
+    9765|1362166673.95104
+    9768|1362168038.85611
+    9771|1362169482.39561
+
+Make dates readable (C<localtime> in scalar context is readable):
+
+    $ log-defer-viz --map 'join "|", _->{data}{pid}, "".localtime(_->{start})' < app.log
+    9765|Fri Mar  1 14:37:53 2013
+    9768|Fri Mar  1 15:00:38 2013
+    9771|Fri Mar  1 15:24:42 2013
+
+As with C<--grep>, you have access to any perl functions you need. Also, you can combine C<--map> and C<--grep>. For example, here is how to do a "pass-through" grep where the output is another valid JSON-encoded L<Log::Defer> file:
+
+    $ log-defer-viz -g '_->{data}{username} eq "jimmy"' \
+                    -m 'encode_json _'                  \
+                    < app.log                           \
                     > jimmys-requests.log
 
-Note that the above also takes advantage of the C<-g> and C<-m> option shortcuts for C<--map> and C<--grep> respectively. It also uses the special C<_> shortcut which is an abbreviation for C<$_>.
+Note that the above also takes advantage of the C<-g> and C<-m> option shortcuts for C<--grep> and C<--map> respectively.
 
 
 

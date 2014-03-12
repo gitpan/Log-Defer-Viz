@@ -1,33 +1,32 @@
----
-abstract: unknown
-author:
-  - unknown
-build_requires:
-  ExtUtils::MakeMaker: 0
+--- #YAML:1.0
+name:               Log-Defer-Viz
+version:            0.315
+abstract:           ~
+author:  []
+license:            perl
+distribution_type:  module
 configure_requires:
-  ExtUtils::MakeMaker: 0
-dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.68, CPAN::Meta::Converter version 2.112621'
-license: perl
-meta-spec:
-  url: http://module-build.sourceforge.net/META-spec-v1.4.html
-  version: 1.4
-name: Log-Defer-Viz
-no_index:
-  directory:
-    - t
-    - inc
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
 requires:
-  Date::Calc: 0
-  Date::Format: 0
-  Getopt::Long: 0
-  JSON::XS: 0
-  Pod::Perldoc: 0
-  Term::ANSIColor: 0
-  Term::Size: 0
-  Try::Tiny: 0
-  common::sense: 0
+    common::sense:    0
+    Date::Calc:       0
+    Date::Format:     0
+    Getopt::Long:     0
+    JSON::XS:         0
+    Pod::Perldoc:     0
+    Term::ANSIColor:  0
+    Term::Size:       0
+    Try::Tiny:        0
 resources:
-  bugtracker: https://github.com/hoytech/Log-Defer-Viz/issues
-  repository: git://github.com/hoytech/Log-Defer-Viz.git
-version: 0.311
+    bugtracker:  https://github.com/hoytech/Log-Defer-Viz/issues
+    repository:  git://github.com/hoytech/Log-Defer-Viz.git
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.57_05
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4
