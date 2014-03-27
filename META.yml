@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Log-Defer-Viz
-version:            0.315
+version:            0.321
 abstract:           ~
 author:  []
 license:            perl

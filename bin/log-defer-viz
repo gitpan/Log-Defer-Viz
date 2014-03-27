@@ -62,6 +62,7 @@ my @opt_spec = (
   'help|h|?',
   'grep|filter|g=s',
   'map|m=s',
+  'follow|f',
   'preserve-newlines|pn'
 );
 
@@ -82,6 +83,7 @@ my $opt = {
     'data-format' => 'json-pretty',
     'data-only' => 0,
 
+    'follow' => 0,
     'preserve-newlines' => 0,
 };
 
@@ -148,22 +150,26 @@ if ($opt->{map}) {
 
 
 unshift(@ARGV, '-') unless @ARGV;
+if (@ARGV > 1 && $opt->{follow}) {
+  die "You've specified --follow but have also provided multiple files, which doesn't make sense. Did you mean to do this?";
+}
+
 while (my $file = shift) {
   my $fh;
 
-  ## FIXME: Do these with perl modules in case zcat/bzcat aren't available.
-  ##        This would also fix stupid single quote limitation below.
-
   if ($file =~ /[.]gz$/) {
-    die qq{filename "$file" can't contain single quotes } if $file =~ /'/;
-    open($fh, "zcat '$file' |") || die "couldn't open $file with zcat: $!";
+    open($fh, '-|', qw/zcat/, $file) || die "couldn't open $file with zcat: $!";
   } elsif ($file =~ /[.]bz2$/) {
-    die qq{filename "$file" can't contain single quotes } if $file =~ /'/;
-    open($fh, "bzcat '$file' |") || die "couldn't open $file with bzcat: $!";
+    open($fh, '-|', qw/bzcat/, $file) || die "couldn't open $file with bzcat: $!";
   } elsif ($file eq '-') {
     $fh = \*STDIN;
   } else {
-    open($fh, '<', $file) || die "couldn't open $file: $!";
+    if ($opt->{follow}) {
+      open($fh, '-|', qw/tail -f -n +0/, $file) || die "couldn't open $file with tail -f: $!";
+    }
+    else {
+      open($fh, '<', $file) || die "couldn't open $file: $!";
+    }
   }
 
   while(<$fh>) {
@@ -398,7 +404,7 @@ sub output_data {
   my $data = shift;
 
   if ($opt->{'data-format'} eq 'json-pretty') {
-    $pretty_json_context ||= JSON::XS->new->ascii->pretty->allow_nonref;
+    $pretty_json_context ||= JSON::XS->new->ascii->pretty->canonical->allow_nonref;
     return $pretty_json_context->encode($data);
   } elsif ($opt->{'data-format'} eq 'json') {
     return encode_json($data);
@@ -407,6 +413,13 @@ sub output_data {
     return YAML::Dump($data);
   } elsif ($opt->{'data-format'} eq 'dumper') {
     require Data::Dumper;
+    local $Data::Dumper::Terse = 1;
+    local $Data::Dumper::Indent = 1;
+    local $Data::Dumper::Useqq = 1;
+    local $Data::Dumper::Deparse = 1;
+    local $Data::Dumper::Quotekeys = 0;
+    local $Data::Dumper::Sortkeys = 1;
+
     return Data::Dumper::Dumper($data);
   }
 
@@ -417,7 +430,7 @@ sub output_data {
 
 __END__
 
-=pod
+=encoding utf-8
 
 =head1 NAME
 
@@ -425,15 +438,16 @@ log-defer-viz - command-line utility for rendering log messages created by L<Log
 
 =head1 DESCRIPTION
 
-L<Log::Defer> is a module that creates structured logs. Read its documentation which explains how structured logging can help you.
+L<Log::Defer> is a module that creates structured logs. The L<Log::Defer> documentation explains structured logging and its benefits over ad-hoc logging.
 
-This module installs a command-line script that parses these logs and displays them in a readable manner.
+This module installs a command-line script that parses structured logs created by L<Log::Defer> and displays them in a readable manner.
 
 =head1 INPUT METHODS
 
     $ cat file.log | log-defer-viz
     $ log-defer-viz < file.log
     $ log-defer-viz file.log
+    $ log-defer-viz -f file.log # continuously tail file
     $ log-defer-viz file.log file2.log
     $ log-defer-viz archived.log.gz more_logs.bz2
 
@@ -468,7 +482,7 @@ Note: The only input format currently implemented is newline-separated JSON.
 
 =head1 DATA SECTION
 
-Data is extra embedded information in the log file. The available outputs are C<pretty-json>, C<json>, C<yaml>, and C<dumper>.
+Applications can optionally log information in a "data" hash. This information is mostly designed to be extracted by programs so C<log-defer-viz> doesn't display it by default. Use the C<--data> option to display it anyway, and the C<--data-format> option to choose the format to display it in. The available formats are C<pretty-json>, C<json>, C<yaml>, and C<dumper>.
 
     $ log-defer-viz --data  ## show data section. default is pretty-json
     $ log-defer-viz --data-format=json  ## compact, not pretty
@@ -492,7 +506,7 @@ The count parameter provides a method to count the number of times a specific ke
 
 =head1 GREPING
 
-As shown above, there is a C<--grep> command-line option. This lets you filter log messages using arbitrary perl code. If the expression returns true, the log message is processed and displayed as normal.
+As shown above, there is a C<--grep> command-line option. This lets you filter log messages using arbitrary perl code. If the expression returns true, the log message is processed and displayed as usual.
 
 Being able to do this easily is an important advantage of structured logs. With unstructured logs it is often difficult to extract all of the information related to a request and nothing else.
 
@@ -504,7 +518,7 @@ Depending on your underlying storage format, it may be meaningful to grep B<befo
 
     $ grep 10.9.1.2 app.log | log-defer-viz
 
-The final and most error-prone way to grep Log::Defer logs is to grep the unstructured output of C<log-defer-viz>:
+The final and most error-prone way to grep Log::Defer logs is to grep the unstructured output of C<log-defer-viz> (not recommended):
 
     $ log-defer-viz app.log | grep 10.9.1.2
 
@@ -512,7 +526,7 @@ The final and most error-prone way to grep Log::Defer logs is to grep the unstru
 
 =head1 MAPPING
 
-Similar to C<--grep>, there is also a C<--map> command-line option. If this option is passed in, the only thing that is output is whatever your C<--map> expression returns.
+Similar to C<--grep>, there is also a C<--map> command-line option. If this option is passed in, the only output is whatever your C<--map> expression returns.
 
 For example, if you are putting the PID into the data section with C<< $log->data->{pid} = $$ >>, then you can extract the PID like so:
 
@@ -521,28 +535,31 @@ For example, if you are putting the PID into the data section with C<< $log->dat
     9768
     9771
 
-Join together fields with a pipe (also shows the special C<_> shortcut which is an abbreviation for C<$_>):
+Join together fields with a pipe:
 
-    $ log-defer-viz --map 'join "|", _->{data}{pid}, _->{start}' < app.log
+    $ log-defer-viz --map 'join "|", $_->{data}{pid}, $_->{start}' < app.log
     9765|1362166673.95104
     9768|1362168038.85611
     9771|1362169482.39561
 
-Make dates readable (C<localtime> in scalar context is readable):
+Make dates readable (C<localtime> in scalar context makes a timestamp readable):
 
-    $ log-defer-viz --map 'join "|", _->{data}{pid}, "".localtime(_->{start})' < app.log
+    $ log-defer-viz --map 'join "|", $_->{data}{pid}, "".localtime($_->{start})' < app.log
     9765|Fri Mar  1 14:37:53 2013
     9768|Fri Mar  1 15:00:38 2013
     9771|Fri Mar  1 15:24:42 2013
 
-As with C<--grep>, you have access to any perl functions you need. Also, you can combine C<--map> and C<--grep>. For example, here is how to do a "pass-through" grep where the output is another valid JSON-encoded L<Log::Defer> file:
+As with C<--grep>, you have access to any perl functions you might need. Also, you can combine C<--map> and C<--grep>. The grep filtering will be applied before the mapping.
 
-    $ log-defer-viz -g '_->{data}{username} eq "jimmy"' \
-                    -m 'encode_json _'                  \
-                    < app.log                           \
+For example, here is how to do a "pass-through grep" where the output is another valid JSON-encoded L<Log::Defer> file:
+
+    $ export USER=jimmy
+    $ log-defer-viz -g "_->{data}{username} eq '$USER'" \
+                    -m "encode_json _"                  \
+                    < requests.log                      \
                     > jimmys-requests.log
 
-Note that the above also takes advantage of the C<-g> and C<-m> option shortcuts for C<--grep> and C<--map> respectively.
+Note that the above also demonstrates two shortcut features: First, the C<-g> and C<-m> switches are abbreviations for C<--grep> and C<--map> respectively. Second, in grep and map expressions the C<_> function is an abbreviation for C<$_>. Although this is one character shorter, the main reason this exists is so that you can use double-quoted strings without having to worry about escaping C<$> characters from your shell.
 
 
 
@@ -552,13 +569,19 @@ L<Log::Defer>
 
 L<Log::Defer::Viz github repo|https://github.com/hoytech/Log-Defer-Viz>
 
+The C<log-defer-viz> is also useful for visualising logs created by Michael Pucyk's L<LogDefer Python module|https://github.com/mikep/LogDefer> (since it outputs the same format)
+
 =head1 AUTHOR
 
 Doug Hoyte, C<< <doug@hcsw.org> >>
 
+=head1 CONTRIBUTORS
+
+Matt Phillips, C<< <mattp@cpan.org> >>
+
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2013 Doug Hoyte.
+Copyright 2013-2014 Doug Hoyte and contributors.
 
 This module is licensed under the same terms as perl itself.
 

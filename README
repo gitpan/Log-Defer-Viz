@@ -3,16 +3,18 @@ NAME
     by Log::Defer
 
 DESCRIPTION
-    Log::Defer is a module that creates structured logs. Read its
-    documentation which explains how structured logging can help you.
+    Log::Defer is a module that creates structured logs. The Log::Defer
+    documentation explains structured logging and its benefits over ad-hoc
+    logging.
 
-    This module installs a command-line script that parses these logs and
-    displays them in a readable manner.
+    This module installs a command-line script that parses structured logs
+    created by Log::Defer and displays them in a readable manner.
 
 INPUT METHODS
         $ cat file.log | log-defer-viz
         $ log-defer-viz < file.log
         $ log-defer-viz file.log
+        $ log-defer-viz -f file.log # continuously tail file
         $ log-defer-viz file.log file2.log
         $ log-defer-viz archived.log.gz more_logs.bz2
 
@@ -44,8 +46,12 @@ TIMERS
         $ log-defer-viz --tz UTC  ## show times in UTC, not local
 
 DATA SECTION
-    Data is extra embedded information in the log file. The available
-    outputs are "pretty-json", "json", "yaml", and "dumper".
+    Applications can optionally log information in a "data" hash. This
+    information is mostly designed to be extracted by programs so
+    "log-defer-viz" doesn't display it by default. Use the "--data" option
+    to display it anyway, and the "--data-format" option to choose the
+    format to display it in. The available formats are "pretty-json",
+    "json", "yaml", and "dumper".
 
         $ log-defer-viz --data  ## show data section. default is pretty-json
         $ log-defer-viz --data-format=json  ## compact, not pretty
@@ -68,7 +74,7 @@ MISC
 GREPING
     As shown above, there is a "--grep" command-line option. This lets you
     filter log messages using arbitrary perl code. If the expression returns
-    true, the log message is processed and displayed as normal.
+    true, the log message is processed and displayed as usual.
 
     Being able to do this easily is an important advantage of structured
     logs. With unstructured logs it is often difficult to extract all of the
@@ -88,14 +94,14 @@ GREPING
         $ grep 10.9.1.2 app.log | log-defer-viz
 
     The final and most error-prone way to grep Log::Defer logs is to grep
-    the unstructured output of "log-defer-viz":
+    the unstructured output of "log-defer-viz" (not recommended):
 
         $ log-defer-viz app.log | grep 10.9.1.2
 
 MAPPING
     Similar to "--grep", there is also a "--map" command-line option. If
-    this option is passed in, the only thing that is output is whatever your
-    "--map" expression returns.
+    this option is passed in, the only output is whatever your "--map"
+    expression returns.
 
     For example, if you are putting the PID into the data section with
     "$log->data->{pid} = $$", then you can extract the PID like so:
@@ -105,44 +111,58 @@ MAPPING
         9768
         9771
 
-    Join together fields with a pipe (also shows the special "_" shortcut
-    which is an abbreviation for $_):
+    Join together fields with a pipe:
 
-        $ log-defer-viz --map 'join "|", _->{data}{pid}, _->{start}' < app.log
+        $ log-defer-viz --map 'join "|", $_->{data}{pid}, $_->{start}' < app.log
         9765|1362166673.95104
         9768|1362168038.85611
         9771|1362169482.39561
 
-    Make dates readable ("localtime" in scalar context is readable):
+    Make dates readable ("localtime" in scalar context makes a timestamp
+    readable):
 
-        $ log-defer-viz --map 'join "|", _->{data}{pid}, "".localtime(_->{start})' < app.log
+        $ log-defer-viz --map 'join "|", $_->{data}{pid}, "".localtime($_->{start})' < app.log
         9765|Fri Mar  1 14:37:53 2013
         9768|Fri Mar  1 15:00:38 2013
         9771|Fri Mar  1 15:24:42 2013
 
-    As with "--grep", you have access to any perl functions you need. Also,
-    you can combine "--map" and "--grep". For example, here is how to do a
-    "pass-through" grep where the output is another valid JSON-encoded
-    Log::Defer file:
+    As with "--grep", you have access to any perl functions you might need.
+    Also, you can combine "--map" and "--grep". The grep filtering will be
+    applied before the mapping.
 
-        $ log-defer-viz -g '_->{data}{username} eq "jimmy"' \
-                        -m 'encode_json _'                  \
-                        < app.log                           \
+    For example, here is how to do a "pass-through grep" where the output is
+    another valid JSON-encoded Log::Defer file:
+
+        $ export USER=jimmy
+        $ log-defer-viz -g "_->{data}{username} eq '$USER'" \
+                        -m "encode_json _"                  \
+                        < requests.log                      \
                         > jimmys-requests.log
 
-    Note that the above also takes advantage of the "-g" and "-m" option
-    shortcuts for "--grep" and "--map" respectively.
+    Note that the above also demonstrates two shortcut features: First, the
+    "-g" and "-m" switches are abbreviations for "--grep" and "--map"
+    respectively. Second, in grep and map expressions the "_" function is an
+    abbreviation for $_. Although this is one character shorter, the main
+    reason this exists is so that you can use double-quoted strings without
+    having to worry about escaping "$" characters from your shell.
 
 SEE ALSO
     Log::Defer
 
     Log::Defer::Viz github repo <https://github.com/hoytech/Log-Defer-Viz>
 
+    The "log-defer-viz" is also useful for visualising logs created by
+    Michael Pucyk's LogDefer Python module
+    <https://github.com/mikep/LogDefer> (since it outputs the same format)
+
 AUTHOR
     Doug Hoyte, "<doug@hcsw.org>"
 
+CONTRIBUTORS
+    Matt Phillips, "<mattp@cpan.org>"
+
 COPYRIGHT & LICENSE
-    Copyright 2013 Doug Hoyte.
+    Copyright 2013-2014 Doug Hoyte and contributors.
 
     This module is licensed under the same terms as perl itself.
 
