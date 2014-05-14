@@ -6,6 +6,7 @@ use Getopt::Long;
 use Term::ANSIColor;
 use Term::Size;
 use Try::Tiny;
+use IPC::Open2;
 
 use Log::Defer::Viz;
 
@@ -63,7 +64,8 @@ my @opt_spec = (
   'grep|filter|g=s',
   'map|m=s',
   'follow|f',
-  'preserve-newlines|pn'
+  'preserve-newlines|pn',
+  'sort-time',
 );
 
 my $opt = {
@@ -85,6 +87,7 @@ my $opt = {
 
     'follow' => 0,
     'preserve-newlines' => 0,
+    'sort-time' => 0,
 };
 
 GetOptions($opt, @opt_spec) || die "GetOptions failed";
@@ -135,7 +138,7 @@ my ($term_cols, $term_rows) = Term::Size::chars(*STDOUT{IO});
 $columns = $term_cols if $term_cols;
 
 
-## The _ sub is a shortcut for use in --grep and --map expressions, ie --grep '_->{data}'
+## The _ sub is a shortcut for use in --grep and --map expressions, ie --grep "_->{data}"
 sub _ () { $_ }
 
 if ($opt->{grep}) {
@@ -153,6 +156,14 @@ unshift(@ARGV, '-') unless @ARGV;
 if (@ARGV > 1 && $opt->{follow}) {
   die "You've specified --follow but have also provided multiple files, which doesn't make sense. Did you mean to do this?";
 }
+
+
+my ($sort_out_fh, $sort_in_fh);
+
+if ($opt->{'sort-time'}) {
+  open2($sort_out_fh, $sort_in_fh, 'sort', '-n');
+}
+
 
 while (my $file = shift) {
   my $fh;
@@ -172,10 +183,41 @@ while (my $file = shift) {
     }
   }
 
+  if ($opt->{'sort-time'}) {
+    while (<$fh>) {
+      if (/"start":([\d.]+)/) {
+        print $sort_in_fh "$1$_";
+      }
+    }
+    next;
+  }
+
+  handle_all_entries_from_fh($fh);
+
+  close($fh);
+}
+
+if ($opt->{'sort-time'}) {
+  undef $sort_in_fh;
+  handle_all_entries_from_fh($sort_out_fh);
+}
+
+
+if (scalar @{$opt->{count}}) {
+  print "  Count:\n";
+  print output_data($count);
+}
+
+
+
+sub handle_all_entries_from_fh {
+  my $fh = shift;
+
   while(<$fh>) {
     my $entry;
 
     try {
+      $_ =~ s/^[^{]+//; ## grep -r prepends filename (this is so you don't to remember the the -h flag) }
       $entry = decode_json($_);
     } catch {
       if ($opt->{verbose}) {
@@ -185,15 +227,7 @@ while (my $file = shift) {
 
     handle_entry($entry) if defined $entry;
   }
-
-  close($fh);
 }
-
-if (scalar @{$opt->{count}}) {
-  print "  Count:\n";
-  print output_data($count);
-}
-
 
 sub handle_entry {
   my ($entry) = @_;
@@ -442,6 +476,12 @@ L<Log::Defer> is a module that creates structured logs. The L<Log::Defer> docume
 
 This module installs a command-line script that parses structured logs created by L<Log::Defer> and displays them in a readable manner.
 
+=head1 INSTALLATION
+
+The fastest way to install C<log-defer-viz> is with cpanminus:
+
+    curl -sL https://raw.github.com/miyagawa/cpanminus/master/cpanm | sudo perl - Log::Defer::Viz
+
 =head1 INPUT METHODS
 
     $ cat file.log | log-defer-viz
@@ -502,6 +542,7 @@ The count parameter provides a method to count the number of times a specific ke
     $ log-defer-viz --grep '$_->{data}'  ## grep for records that have a data section.
                                          ## $_ is the entire Log::Defer entry.
     $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
+    $ log-defer-viz --sort-time  ## Sort by start time
 
 
 =head1 GREPING

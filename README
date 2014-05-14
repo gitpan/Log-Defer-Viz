@@ -10,6 +10,11 @@ DESCRIPTION
     This module installs a command-line script that parses structured logs
     created by Log::Defer and displays them in a readable manner.
 
+INSTALLATION
+    The fastest way to install "log-defer-viz" is with cpanminus:
+
+        curl -sL https://raw.github.com/miyagawa/cpanminus/master/cpanm | sudo perl - Log::Defer::Viz
+
 INPUT METHODS
         $ cat file.log | log-defer-viz
         $ log-defer-viz < file.log
@@ -70,6 +75,7 @@ MISC
         $ log-defer-viz --grep '$_->{data}'  ## grep for records that have a data section.
                                              ## $_ is the entire Log::Defer entry.
         $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
+        $ log-defer-viz --sort-time  ## Sort by start time
 
 GREPING
     As shown above, there is a "--grep" command-line option. This lets you
