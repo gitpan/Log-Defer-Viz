@@ -4,7 +4,7 @@
       "unknown"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.94, CPAN::Meta::Converter version 2.131560",
+   "generated_by" : "ExtUtils::MakeMaker version 6.98, CPAN::Meta::Converter version 2.142690",
    "license" : [
       "perl_5"
    ],
@@ -53,5 +53,5 @@
          "url" : "git://github.com/hoytech/Log-Defer-Viz.git"
       }
    },
-   "version" : "0.325"
+   "version" : "0.330"
 }

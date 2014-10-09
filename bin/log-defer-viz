@@ -125,12 +125,6 @@ if ($opt->{'data-only'}) {
 }
 
 
-my $count = {};
-
-foreach my $key (@{ $opt->{count} }) {
-  $count->{$key} = {};
-}
-
 
 my $columns = $opt->{'timer-columns'};
 
@@ -138,18 +132,39 @@ my ($term_cols, $term_rows) = Term::Size::chars(*STDOUT{IO});
 $columns = $term_cols if $term_cols;
 
 
-## The _ sub is a shortcut for use in --grep and --map expressions, ie --grep "_->{data}"
+
+## The _ sub is a shortcut for use in --grep, --map, and --count expressions, ie --grep "_->{data}"
 sub _ () { $_ }
 
 if ($opt->{grep}) {
-  $opt->{grep} = eval('sub { local $_ = $_[0]; ' . $opt->{grep} . '}');
-  die "Error compiling --grep expression: $@" if $@;
+  my $expr = $opt->{grep};
+  $opt->{grep} = eval('sub { local $_ = $_[0]; ' . $expr . '}');
+  die "Error compiling --grep expression '$expr' ($@)" if $@;
 }
 
 if ($opt->{map}) {
-  $opt->{map} = eval('sub { local $_ = $_[0]; ' . $opt->{map} . '}');
-  die "Error compiling --map expression: $@" if $@;
+  my $expr = $opt->{map};
+  $opt->{map} = eval('sub { local $_ = $_[0]; ' . $expr . '}');
+  die "Error compiling --map expression '$expr' ($@)" if $@;
 }
+
+
+my $count = {};
+my $count_subs = {};
+
+foreach my $key (@{ $opt->{count} }) {
+  if ($key =~ /^\w+$/) {
+    ## The original format for count arguments were keys to the data hash
+    $count_subs->{$key} = sub { $_[0]->{data}->{$key} };
+  } else {
+    ## But the more general way is with an accessor
+    $count_subs->{$key} = eval('sub { local $_ = $_[0]; ' . $key . '}');
+    die "Error compiling --count expression '$key' ($@)" if $@;
+  }
+
+  $count->{$key} = {};
+}
+
 
 
 unshift(@ARGV, '-') unless @ARGV;
@@ -176,7 +191,7 @@ while (my $file = shift) {
     $fh = \*STDIN;
   } else {
     if ($opt->{follow}) {
-      open($fh, '-|', qw/tail -f -n +0/, $file) || die "couldn't open $file with tail -f: $!";
+      open($fh, '-|', qw/tail -f -n 0/, $file) || die "couldn't open $file with tail -f: $!";
     }
     else {
       open($fh, '<', $file) || die "couldn't open $file: $!";
@@ -204,7 +219,6 @@ if ($opt->{'sort-time'}) {
 
 
 if (scalar @{$opt->{count}}) {
-  print "  Count:\n";
   print output_data($count);
 }
 
@@ -261,6 +275,18 @@ sub handle_entry {
 
     $output = "$output\n" unless $output =~ /\n$/;;
     print $output;
+
+    return;
+  }
+
+  if (@{ $opt->{count} }) {
+    foreach my $key (@{ $opt->{count} }) {
+      my $val = $count_subs->{$key}->($entry);
+
+      if (defined $val) {
+        $count->{$key}->{$val} += 1;
+      }
+    }
 
     return;
   }
@@ -347,7 +373,7 @@ sub handle_entry {
   }
 
   if ($opt->{timers}) {
-    print Log::Defer::Viz::render_timers(width => $columns-10, timers => $entry->{timers}) if $entry->{timers};
+    print Log::Defer::Viz::render_timers(width => $columns-10, timers => $entry->{timers}) if @{ $entry->{timers} };
   }
 
   if ($entry->{data}) {
@@ -357,12 +383,6 @@ sub handle_entry {
     } else {
       print "  ** This log has associated data. See it with --data\n"
         unless $opt->{quiet} || (defined $opt->{data} && !$opt->{data});
-    }
-
-    foreach my $key (@{ $opt->{count} }) {
-      if (exists $entry->{data}->{$key}) {
-        $count->{$key}->{$entry->{data}->{$key}} += 1;
-      }
     }
   }
 
@@ -510,7 +530,7 @@ Note: The only input format currently implemented is newline-separated JSON.
     $ log-defer-viz --nowarn  ## muffle warn logs (so show error and info)
     $ log-defer-viz --nologs  ## don't show log section
     $ log-defer-viz --nocolour  ## turn off terminal colours
-    $ log-defer-viz --preserve-newlines # dont indent log messages to align with log-defer-viz output
+    $ log-defer-viz --preserve-newlines # don't indent multi-line log messages
 
 =head1 TIMERS
 
@@ -529,19 +549,24 @@ Applications can optionally log information in a "data" hash. This information i
     $ log-defer-viz --data-format=dumper  ## Data::Dumper
     $ log-defer-viz --data-only  ## only show data
 
+=head1 FILTERS AND TRANSFORMS
+
+As described in detail in their respective sections below, C<--grep> and C<--map> allow flexible selection and manipulation of your log data using arbitrary perl code.
+
+    $ log-defer-viz --grep '$_->{data}'  ## grep for records that have a data section.
+                                         ## $_ is the entire Log::Defer entry.
+    $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
+
 =head1 COUNT
 
-The count parameter provides a method to count the number of times a specific key/value appears in the data section of the log file.
+The count parameter tallies the number of times values appear in the data section of the log file. The arguments can be keys in the data section or arbitrary perl code.
 
     $ log-defer-viz --data --count ip_address ## Display how many log lines for each ip address
-    $ log-defer-viz --data --count ip_address --count user_id ## Display how many log lines for each ip address and each user_id
+    $ log-defer-viz --data --count ip_address --count '$_->{data}->{login_info}->{username}'
 
 =head1 MISC
 
     $ log-defer-viz --help  ## the text you're reading now
-    $ log-defer-viz --grep '$_->{data}'  ## grep for records that have a data section.
-                                         ## $_ is the entire Log::Defer entry.
-    $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
     $ log-defer-viz --sort-time  ## Sort by start time
 
 
