@@ -15,7 +15,8 @@ INSTALLATION
 
         curl -sL https://raw.github.com/miyagawa/cpanminus/master/cpanm | sudo perl - Log::Defer::Viz
 
-INPUT METHODS
+SWITCHES
+  INPUT METHODS
         $ cat file.log | log-defer-viz
         $ log-defer-viz < file.log
         $ log-defer-viz file.log
@@ -23,7 +24,7 @@ INPUT METHODS
         $ log-defer-viz file.log file2.log
         $ log-defer-viz archived.log.gz more_logs.bz2
 
-INPUT FORMAT
+  INPUT FORMAT
         $ log-defer-viz --input-format=json  ## default is newline separated JSON
         $ log-defer-viz --input-format=sereal  ## Sereal::Decoder (not impl)
         $ log-defer-viz --input-format=messagepack  ## Data::MessagePack (not impl)
@@ -32,7 +33,7 @@ INPUT FORMAT
     Note: The only input format currently implemented is newline-separated
     JSON.
 
-LOG MESSAGES
+  LOG MESSAGES
         $ log-defer-viz  ## by default shows error, warn, and info logs
         $ log-defer-viz -v  ## verbose mode (adds debug logs and more)
         $ log-defer-viz --debug  ## show debug logs
@@ -43,14 +44,14 @@ LOG MESSAGES
         $ log-defer-viz --nocolour  ## turn off terminal colours
         $ log-defer-viz --preserve-newlines # don't indent multi-line log messages
 
-TIMERS
+  TIMERS
         $ log-defer-viz --timer-columns 80  ## width of timer chart
         $ log-defer-viz --since-now  ## show relative to now times
                                      ##   like "34 minutes ago"
         $ log-defer-viz --notimers  ## don't show timer chart
         $ log-defer-viz --tz UTC  ## show times in UTC, not local
 
-DATA SECTION
+  DATA SECTION
     Applications can optionally log information in a "data" hash. This
     information is mostly designed to be extracted by programs so
     "log-defer-viz" doesn't display it by default. Use the "--data" option
@@ -63,26 +64,31 @@ DATA SECTION
         $ log-defer-viz --data-format=dumper  ## Data::Dumper
         $ log-defer-viz --data-only  ## only show data
 
-FILTERS AND TRANSFORMS
-    As described in detail in their respective sections below, "--grep" and
-    "--map" allow flexible selection and manipulation of your log data using
-    arbitrary perl code.
+  FILTERS, TRANSFORMS, AGGREGATES
+    As described in detail in their respective sections below, "--grep",
+    "--map", and "--reduce" allow flexible selection and manipulation of
+    your log data using arbitrary perl code. In the provided perl code, $_
+    refers to the log entry as a hash-reference. In "--reduce" there is also
+    a special $o output variable.
 
         $ log-defer-viz --grep '$_->{data}'  ## grep for records that have a data section.
                                              ## $_ is the entire Log::Defer entry.
         $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
+        $ log-defer-viz --reduce '$o->{ $_->{data}->{ip_addr} }++'  ## Count IP addresses
 
-COUNT
-    The count parameter tallies the number of times values appear in the
-    data section of the log file. The arguments can be keys in the data
-    section or arbitrary perl code.
+  COUNT
+    The count parameter tallies values found in log file. The arguments can
+    be keys in the data section or arbitrary perl code. Multiple values are
+    accepted. Note: This feature is mostly obsoleted by the "--reduce"
+    feature but is kept for backwards compatibility and because it can be
+    quite convenient.
 
-        $ log-defer-viz --data --count ip_address ## Display how many log lines for each ip address
+        $ log-defer-viz --data --count ip_address ## display how many log lines for each ip address
         $ log-defer-viz --data --count ip_address --count '$_->{data}->{login_info}->{username}'
 
-MISC
-        $ log-defer-viz --help  ## the text you're reading now
-        $ log-defer-viz --sort-time  ## Sort by start time
+  MISCELLANEOUS
+        $ log-defer-viz --help  ## the text you are reading now
+        $ log-defer-viz --sort-time  ## sort by start time
 
 GREPING
     As shown above, there is a "--grep" command-line option. This lets you
@@ -99,10 +105,11 @@ GREPING
         $ log-defer-viz --grep '$_->{end} > .5' server.log
 
     Depending on your underlying storage format, it may be meaningful to
-    grep before passing to "log-defer-viz". Currently the only supported
-    storage format is newline-separated JSON which *is* designed to be
-    pre-grepable. If your search string appears anywhere in the object, the
-    entire log message will be displayed:
+    grep before passing to "log-defer-viz" (usually for performance
+    reasons). Currently the only supported storage format is
+    newline-separated JSON which *is* designed to be pre-grepable. If your
+    search string appears anywhere in the object, the entire log message
+    will be displayed:
 
         $ grep 10.9.1.2 app.log | log-defer-viz
 
@@ -110,6 +117,10 @@ GREPING
     the unstructured output of "log-defer-viz" (not recommended):
 
         $ log-defer-viz app.log | grep 10.9.1.2
+
+    In general, "--grep" can be combined with other switches that take
+    expressions such as "--map" and "--reduce". In these cases, the greping
+    will occur first.
 
 MAPPING
     Similar to "--grep", there is also a "--map" command-line option. If
@@ -159,6 +170,39 @@ MAPPING
     reason this exists is so that you can use double-quoted strings without
     having to worry about escaping "$" characters from your shell.
 
+REDUCING
+    Unlike "--map" which outputs the same number of values that were input,
+    and "--grep" that can return any number up to that amount, "--reduce"
+    returns exactly one value.
+
+    While the expression passed in as an argument to "--reduce" is being
+    evaluated, there is a special variable called $o available. The initial
+    value of this variable is an empty hash ("{}") and the value stored
+    there is preserved across all invocations of your reduce expression.
+    This means it can be used for counters and accumulators and such.
+
+    The most straightforward use-case is the simple tally or count. For
+    example, here is how you could mimic the (somewhat deprecated) "--count"
+    feature and get the sum totals of the different HTTP status codes
+    present in the log file:
+
+        $ log-defer-viz --reduce '$o->{ $_->{data}->{status_code} }++' \
+                        service.log
+        {
+            "200": 10293,
+            "404": 392,
+            "304": 3012,
+            "500": 2
+        }
+
+    Here is how to count how many log entries contain at least one error
+    message (log level 10 or lower, see Log::Defer):
+
+        --reduce '$o->{errors}++ if grep { $_->[1] <= 10 } @{ $_->{logs} }'
+
+    As with "--data" and "--count", the default output format is prettified
+    JSON but you can change that with the "--data-format" option.
+
 SEE ALSO
     Log::Defer
 
@@ -173,6 +217,15 @@ AUTHOR
 
 CONTRIBUTORS
     Matt Phillips, "<mattp@cpan.org>"
+
+    Mike P
+
+    Mike R
+
+    Avianna
+
+    Thanks to the above and also to everyone else who has given feedback or
+    suggestions.
 
 COPYRIGHT & LICENSE
     Copyright 2013-2014 Doug Hoyte and contributors.
