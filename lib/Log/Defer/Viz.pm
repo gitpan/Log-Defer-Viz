@@ -1,6 +1,6 @@
 package Log::Defer::Viz;
 
-our $VERSION = '0.340';
+our $VERSION = '0.345';
 
 use common::sense;
 
@@ -155,10 +155,3 @@ Copyright 2013 Doug Hoyte.
 This module is licensed under the same terms as perl itself.
 
 =cut
-
-
-
-
-TODO:
-
-* option --interleaved that shows events at absolute times

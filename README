@@ -75,6 +75,7 @@ SWITCHES
                                              ## $_ is the entire Log::Defer entry.
         $ log-defer-viz --map '$_->{data}->{username}'  ## Extract username from data
         $ log-defer-viz --reduce '$o->{ $_->{data}->{ip_addr} }++'  ## Count IP addresses
+        $ log-defer-viz --pass-through  ## After grepping, print a valid log-defer stream
 
   COUNT
     The count parameter tallies values found in log file. The arguments can
@@ -169,6 +170,10 @@ MAPPING
     abbreviation for $_. Although this is one character shorter, the main
     reason this exists is so that you can use double-quoted strings without
     having to worry about escaping "$" characters from your shell.
+
+    Instead of using "-m "encode_json $_"", there is a "--pass-through"
+    option that is more efficient since it doesn't pointlessly re-encode the
+    log message.
 
 REDUCING
     Unlike "--map" which outputs the same number of values that were input,
